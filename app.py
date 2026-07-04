@@ -1,3 +1,4 @@
+from discord_integration import send_report_to_discord
 import streamlit as st
 from urllib.parse import urlparse
 
@@ -16,6 +17,10 @@ for key, default in [
     ("last_report", None),
     ("last_pdf_path", None),
     ("selected_model", None),
+    ("discord_bot_token", ""),
+    ("discord_channel_id", ""),
+    ("applicant_name", ""),
+    ("applicant_email", ""),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -39,19 +44,33 @@ with st.sidebar:
 
     st.divider()
 
-    with st.expander("⚙️ API Keys (optional override)"):
+    tab1, tab2 = st.tabs(["API", "DISCORD"])
+
+    with tab1:
         custom_openrouter = st.text_input("OpenRouter API Key", type="password", placeholder="sk-or-v1-...")
         custom_serper = st.text_input("Serper.dev API Key", type="password", placeholder="Your Serper key...")
-
         model_label = st.selectbox("AI Model", list(FREE_MODEL_OPTIONS.keys()))
 
-        if st.button("Save Configuration", use_container_width=True):
+        if st.button("Save Configuration", use_container_width=True, key="save_api"):
             if custom_openrouter:
                 ai_engine.OPENROUTER_API_KEY = custom_openrouter
             if custom_serper:
                 research.SERPER_API_KEY = custom_serper
             st.session_state.selected_model = FREE_MODEL_OPTIONS[model_label]
             st.success("Configuration saved for this session.")
+
+    with tab2:
+        discord_bot_token = st.text_input("Discord Bot Token", type="password")
+        discord_channel_id = st.text_input("Discord Channel ID")
+        applicant_name = st.text_input("Applicant Name")
+        applicant_email = st.text_input("Applicant Email Address")
+
+        if st.button("Save Configuration", use_container_width=True, key="save_discord"):
+            st.session_state.discord_bot_token = discord_bot_token
+            st.session_state.discord_channel_id = discord_channel_id
+            st.session_state.applicant_name = applicant_name
+            st.session_state.applicant_email = applicant_email
+            st.success("Discord configuration saved.")
 
     st.divider()
     st.markdown("**How it works**")
@@ -118,6 +137,22 @@ def run_research_pipeline(user_input):
     with st.status("Generating PDF report...", expanded=False) as status:
         pdf_path = generate_pdf_report(result, output_path=f"{company_name}_report.pdf")
         status.update(label="PDF report ready", state="complete")
+
+    if st.session_state.discord_bot_token and st.session_state.discord_channel_id:
+        with st.status("Sending report to Discord...", expanded=False) as status:
+            success, msg = send_report_to_discord(
+                st.session_state.discord_bot_token,
+                st.session_state.discord_channel_id,
+                st.session_state.applicant_name,
+                st.session_state.applicant_email,
+                result.get("company_name"),
+                result.get("website"),
+                pdf_path
+            )
+            if success:
+                status.update(label="Sent to Discord successfully", state="complete")
+            else:
+                status.update(label=f"Discord send failed: {msg}", state="error")
 
     return result, pdf_path
 
